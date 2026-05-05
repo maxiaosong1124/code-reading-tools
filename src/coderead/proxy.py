@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 
 
-ByteObserver = Callable[[bytes], Awaitable[None] | None]
+ObserverResult = bytes | Sequence[bytes] | Awaitable[bytes | Sequence[bytes] | None] | None
+ByteObserver = Callable[[bytes], ObserverResult]
 
 
 async def run_proxy(
@@ -45,9 +47,23 @@ async def _pipe(reader, writer, *, observer: ByteObserver | None = None) -> None
         if not chunk:
             break
         if observer is not None:
-            observed = observer(chunk)
-            if observed is not None:
-                await observed
+            injected_chunks = await _resolve_observer_chunks(observer(chunk))
+            for injected in injected_chunks:
+                await _write_chunk(writer, injected)
+        await _write_chunk(writer, chunk)
+
+
+async def _resolve_observer_chunks(result: ObserverResult) -> list[bytes]:
+    if inspect.isawaitable(result):
+        result = await result
+    if result is None:
+        return []
+    if isinstance(result, bytes):
+        return [result]
+    return list(result)
+
+
+async def _write_chunk(writer, chunk: bytes) -> None:
         await asyncio.to_thread(writer.write, chunk)
         flush = getattr(writer, "flush", None)
         drain = getattr(writer, "drain", None)

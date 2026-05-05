@@ -9,6 +9,7 @@
 - Mermaid flowchart 导出。
 - DAP `Content-Length` framing。
 - Experimental DAP proxy 入口。
+- DAP capture：观察 `next`、`stepIn`、`stepOut`、`continue`、`pause` commands，在 `stopped` event 后注入 `stackTrace` request，并把 `stackTrace` response 转成 `TraceEvent` 写入 JSONL。
 
 ## 暂不覆盖
 
@@ -19,7 +20,7 @@
 
 ## 计划使用方式
 
-后续 CLI 将提供：
+当前 CLI：
 
 ```bash
 uv run coderead trace --out-dir .coderead-traces
@@ -27,4 +28,10 @@ uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .
 uv run coderead proxy --out-dir .coderead-traces --real-adapter python -m debugpy.adapter
 ```
 
-当前阶段优先实现可测试的 trace core，再逐步接入 VS Code debug adapter 流量。
+`proxy` command 会创建 trace session directory，并在观察到 DAP `stopped` + `stackTrace` response 后写入 `events.jsonl`。当前实现已在协议层 tests 中验证，下一步需要用真实 VS Code + debugpy 做端到端配置验证。
+
+## 当前限制
+
+- `stackTrace` request 由 proxy 注入到底层 adapter，真实 adapter 是否接受这种旁路 request 需要在 debugpy/cppdbg/cuda-gdb adapter 上逐个验证。
+- 当前 capture 只记录 stop 后的 stack frames，不记录 scopes、variables 或 CUDA block/thread metadata。
+- 当前还没有 VS Code extension，需要手动配置 adapter proxy。

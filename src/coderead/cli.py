@@ -5,8 +5,10 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
+from coderead.dap_capture import DapTraceCapture
 from coderead.graph import build_flow_graph
 from coderead.mermaid import render_mermaid
+from coderead.proxy import ByteObserver
 from coderead.proxy import run_proxy
 from coderead.store import TraceStore, dump_graph_json, load_events_jsonl
 
@@ -58,5 +60,43 @@ def _trace_command(args: argparse.Namespace) -> int:
 def _proxy_command(args: argparse.Namespace) -> int:
     if not args.real_adapter:
         raise SystemExit("--real-adapter requires a command")
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    return asyncio.run(run_proxy(args.real_adapter))
+    client_observer, adapter_observer, store = create_proxy_trace_observers(
+        out_dir=args.out_dir,
+        adapter="dap",
+    )
+    print(store.session_dir)
+    return asyncio.run(
+        run_proxy(
+            args.real_adapter,
+            on_client_chunk=client_observer,
+            on_adapter_chunk=adapter_observer,
+        )
+    )
+
+
+def create_proxy_trace_observers(
+    *,
+    out_dir: Path,
+    adapter: str,
+    session_id: str | None = None,
+) -> tuple[ByteObserver, ByteObserver, TraceStore]:
+    session = session_id or f"sess_{uuid4().hex[:12]}"
+    store = TraceStore.create(out_dir, session_id=session, adapter=adapter)
+    capture = DapTraceCapture(session_id=session, adapter=adapter)
+
+    def client_observer(chunk: bytes) -> list[bytes]:
+        injected = capture.observe_client_bytes(chunk)
+        _flush_capture_events(capture, store)
+        return injected
+
+    def adapter_observer(chunk: bytes) -> list[bytes]:
+        injected = capture.observe_adapter_bytes(chunk)
+        _flush_capture_events(capture, store)
+        return injected
+
+    return client_observer, adapter_observer, store
+
+
+def _flush_capture_events(capture: DapTraceCapture, store: TraceStore) -> None:
+    for event in capture.pop_events():
+        store.append_event(event)
