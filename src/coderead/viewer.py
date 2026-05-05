@@ -227,6 +227,8 @@ def _overview_payload(graph: FlowGraph, overview_nodes: list[FlowNode]) -> list[
     for node in overview_nodes:
         if node.id in handled_nodes:
             continue
+        if "trace_segment" in node.kinds and _is_deep_trace_segment(graph, node):
+            continue
         if "call_placeholder" in node.kinds and _is_embedded_placeholder(graph, node):
             continue
         if "trace_segment" in node.kinds and node.parent_id is None:
@@ -364,6 +366,13 @@ def _is_embedded_placeholder(graph: FlowGraph, node: FlowNode) -> bool:
     return parent is not None and "trace_segment" in parent.kinds and parent.parent_id is None
 
 
+def _is_deep_trace_segment(graph: FlowGraph, node: FlowNode) -> bool:
+    if node.parent_id is None:
+        return False
+    parent = graph.nodes.get(node.parent_id)
+    return parent is not None and "trace_segment" in parent.kinds and parent.parent_id is not None
+
+
 def _split_root_segment_payload(
     graph: FlowGraph,
     node: FlowNode,
@@ -475,9 +484,12 @@ def _call_breaks_for_segment(graph: FlowGraph, node: FlowNode) -> list[tuple[int
 
 def _subflow_payload(graph: FlowGraph, node: FlowNode) -> dict[str, Any]:
     children = [child for child in graph.nodes.values() if child.parent_id == node.id and "internal_line" in child.kinds]
+    call_children_by_line = _call_children_by_line(graph, node)
     statements = _python_function_statements(node.file, node.function)
     structure = {int(statement["line"]): statement for statement in statements}
     statement_by_line = _statement_lookup_by_line(statements)
+    if not statement_by_line:
+        statement_by_line = _infer_statement_lookup_from_children(children)
     child_by_line = {child.line: child for child in children}
     sequence = node.metadata.get("internal_line_sequence")
     ordered_children = (
@@ -506,6 +518,8 @@ def _subflow_payload(graph: FlowGraph, node: FlowNode) -> dict[str, Any]:
         if key == previous_key:
             continue
         previous_key = key
+        if call_children_by_line.get(line) and _statement_has_call_only_step(steps, line, end_line):
+            continue
         steps.append(
             {
                 "line": line,
@@ -518,11 +532,107 @@ def _subflow_payload(graph: FlowGraph, node: FlowNode) -> dict[str, Any]:
                 "markers": list(statement.get("markers", [])),
             }
         )
+        for call_child in call_children_by_line.get(line, []):
+            steps.append(_node_payload(call_child))
     return {
         **_node_payload(node),
         "kind": "function_container",
         "steps": steps,
     }
+
+
+def _call_children_by_line(graph: FlowGraph, node: FlowNode) -> dict[int, list[FlowNode]]:
+    children: dict[int, list[FlowNode]] = {}
+    for child in graph.nodes.values():
+        if child.parent_id != node.id or "trace_segment" not in child.kinds:
+            continue
+        call_site_line = child.metadata.get("call_site_line")
+        if isinstance(call_site_line, int):
+            children.setdefault(call_site_line, []).append(child)
+    for items in children.values():
+        items.sort(key=_overview_sort_key)
+    return children
+
+
+def _statement_has_call_only_step(steps: list[dict[str, Any]], line: int, end_line: int) -> bool:
+    if not steps:
+        return False
+    previous = steps[-1]
+    return (
+        previous.get("kind") == "trace_line"
+        and previous.get("line") == line
+        and previous.get("line_text") == (str(line) if line == end_line else f"{line}-{end_line}")
+    )
+
+
+def _infer_statement_lookup_from_children(children: list[FlowNode]) -> dict[int, dict[str, Any]]:
+    line_text: dict[int, str] = {}
+    for child in children:
+        text = child.metadata.get("source_text", "")
+        if text and child.line not in line_text:
+            line_text[child.line] = text
+    if not line_text:
+        return {}
+    sorted_lines = sorted(line_text)
+    lookup: dict[int, dict[str, Any]] = {}
+    cursor = 0
+    while cursor < len(sorted_lines):
+        start = sorted_lines[cursor]
+        merged_parts = [line_text[start]]
+        depth = _bracket_balance(line_text[start])
+        end = start
+        nxt = cursor + 1
+        while nxt < len(sorted_lines) and depth > 0 and sorted_lines[nxt] - end == 1:
+            line = sorted_lines[nxt]
+            text = line_text[line]
+            merged_parts.append(text)
+            depth += _bracket_balance(text)
+            end = line
+            nxt += 1
+        statement = {
+            "line": start,
+            "end_line": end,
+            "depth": 0,
+            "markers": _source_markers(line_text[start]),
+            "source_text": _compact_source_text(" ".join(merged_parts)),
+        }
+        for line in range(start, end + 1):
+            lookup[line] = statement
+        cursor = nxt
+    return lookup
+
+
+def _bracket_balance(text: str) -> int:
+    depth = 0
+    in_str: str | None = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if in_str:
+            if char == "\\" and index + 1 < len(text):
+                index += 2
+                continue
+            if char == in_str:
+                in_str = None
+            index += 1
+            continue
+        if char == "#":
+            break
+        if char in ("'", '"'):
+            triple = text[index : index + 3]
+            if triple in ("'''", '"""'):
+                end = text.find(triple, index + 3)
+                index = end + 3 if end >= 0 else len(text)
+                continue
+            in_str = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        index += 1
+    return depth
 
 
 def _python_function_structure(path: str, function_name: str) -> dict[int, dict[str, Any]]:
@@ -558,9 +668,44 @@ def _collect_statement_structure(statement: ast.stmt, depth: int, statements: li
                 "source_text": _statement_source_text(source_text, statement, line, end_line),
             }
         )
+    if isinstance(statement, ast.Try):
+        _collect_try_header_structure(statement, depth, statements, source_text)
     child_depth = depth + 1 if isinstance(statement, (ast.For, ast.AsyncFor, ast.While, ast.If, ast.With, ast.AsyncWith, ast.Try)) else depth
     for child in _statement_children(statement):
         _collect_statement_structure(child, child_depth, statements, source_text)
+
+
+def _collect_try_header_structure(statement: ast.Try, depth: int, statements: list[dict[str, Any]], source_text: str) -> None:
+    for handler in statement.handlers:
+        line = getattr(handler, "lineno", 0)
+        if line:
+            statements.append(
+                {
+                    "line": line,
+                    "end_line": line,
+                    "depth": depth,
+                    "markers": ["branch"],
+                    "source_text": _read_source_lines(source_text, line, line),
+                }
+            )
+    if statement.orelse:
+        _append_block_header_statement("else:", statement.orelse[0].lineno - 1, depth, statements)
+    if statement.finalbody:
+        _append_block_header_statement("finally:", statement.finalbody[0].lineno - 1, depth, statements)
+
+
+def _append_block_header_statement(source_text: str, line: int, depth: int, statements: list[dict[str, Any]]) -> None:
+    if line <= 0:
+        return
+    statements.append(
+        {
+            "line": line,
+            "end_line": line,
+            "depth": depth,
+            "markers": [],
+            "source_text": source_text,
+        }
+    )
 
 
 def _statement_visible_end_line(statement: ast.stmt) -> int:
@@ -575,6 +720,10 @@ def _statement_visible_end_line(statement: ast.stmt) -> int:
 
 def _statement_source_text(source_text: str, statement: ast.stmt, start_line: int, end_line: int) -> str:
     if end_line == getattr(statement, "end_lineno", start_line):
+        try:
+            return ast.unparse(statement)
+        except Exception:
+            pass
         segment = ast.get_source_segment(source_text, statement) or ""
         if segment:
             return _compact_source_text(segment)
@@ -794,9 +943,9 @@ def _compact_python_statement(source_text: str, start_line: int, end_line: int) 
 
 def _compact_source_text(source_text: str) -> str:
     compact = " ".join(line.strip() for line in source_text.splitlines() if line.strip() and not line.strip().startswith("#"))
-    compact = compact.replace("( ", "(").replace(" )", ")")
-    compact = compact.replace(",)", ")")
-    compact = compact.replace(", )", ")")
+    for opener, closer in (("(", ")"), ("[", "]"), ("{", "}")):
+        compact = compact.replace(f"{opener} ", opener).replace(f" {closer}", closer)
+        compact = compact.replace(f",{closer}", closer).replace(f", {closer}", closer)
     return compact
 
 

@@ -209,6 +209,53 @@ def test_view_payload_groups_main_steps_inside_single_function_container(tmp_pat
     ]
 
 
+def test_view_payload_keeps_deep_step_into_calls_out_of_overview(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    stream_response()\n"
+        "def stream_response():\n"
+        "    for output in engine.generate(\n"
+        "        request_id=request_id, prompt=prompt, sampling_params=sampling_params\n"
+        "    ):\n"
+        "        consume(output)\n"
+        "def generate():\n"
+        "    q = add_request()\n"
+        "def add_request():\n"
+        "    return queue\n",
+        encoding="utf-8",
+    )
+    main_2 = frame("main", str(source), 2)
+    stream_4 = frame("stream_response", str(source), 4)
+    generate_9 = frame("generate", str(source), 9)
+    add_request_11 = frame("add_request", str(source), 11)
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[main_2]),
+            stopped("evt_02", "stream_response", str(source), 4, stack=[stream_4, main_2], command="stepIn"),
+            stopped("evt_03", "generate", str(source), 9, stack=[generate_9, stream_4, main_2], command="stepIn"),
+            stopped("evt_04", "add_request", str(source), 11, stack=[add_request_11, generate_9, stream_4, main_2], command="stepIn"),
+        ]
+    )
+
+    payload = _view_payload(graph=graph, scenario="深层调用", session={})
+
+    overview_steps = payload["overview"][0]["steps"]
+    assert [(step["function"], step["kind"]) for step in overview_steps] == [
+        ("main", "trace_line"),
+        ("stream_response", "trace_segment"),
+    ]
+    subflows = {subflow["function"]: subflow for subflow in payload["subflows"]}
+    assert [step["function"] for step in subflows["stream_response"]["steps"]] == [
+        "stream_response",
+        "generate",
+    ]
+    assert [step["function"] for step in subflows["generate"]["steps"]] == [
+        "generate",
+        "add_request",
+    ]
+
+
 def test_render_trace_html_uses_function_container_for_overview(tmp_path):
     source = tmp_path / "app.py"
     source.write_text(
@@ -329,6 +376,51 @@ def test_view_payload_overview_uses_short_display_text_for_long_statements(tmp_p
     assert step["display_text"] == "engine_args = AsyncEngineArgs(...)"
 
 
+def test_view_payload_overview_splits_compound_blocks_into_readable_statements(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    try:\n"
+        "        prompts = [\n"
+        "            'a',\n"
+        "            'b',\n"
+        "        ]\n"
+        "        for prompt in prompts:\n"
+        "            request_id = make_request_id(prompt)\n"
+        "            await stream_response(prompt, request_id)\n"
+        "    finally:\n"
+        "        shutdown()\n",
+        encoding="utf-8",
+    )
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[frame("main", str(source), 2)]),
+            stopped("evt_02", "main", str(source), 3, stack=[frame("main", str(source), 3)]),
+            stopped("evt_03", "main", str(source), 4, stack=[frame("main", str(source), 4)]),
+            stopped("evt_04", "main", str(source), 5, stack=[frame("main", str(source), 5)]),
+            stopped("evt_05", "main", str(source), 6, stack=[frame("main", str(source), 6)]),
+            stopped("evt_06", "main", str(source), 7, stack=[frame("main", str(source), 7)]),
+            stopped("evt_07", "main", str(source), 8, stack=[frame("main", str(source), 8)]),
+            stopped("evt_08", "main", str(source), 9, stack=[frame("main", str(source), 9)]),
+            stopped("evt_09", "main", str(source), 10, stack=[frame("main", str(source), 10)]),
+            stopped("evt_10", "main", str(source), 11, stack=[frame("main", str(source), 11)]),
+        ]
+    )
+
+    payload = _view_payload(graph=graph, scenario="compound block", session={})
+    steps = [step for step in payload["overview"][0]["steps"] if step["kind"] == "trace_line"]
+
+    assert [(step["line_text"], step["source_text"]) for step in steps] == [
+        ("2", "try:"),
+        ("3-6", "prompts = ['a', 'b']"),
+        ("7", "for prompt in prompts:"),
+        ("8", "request_id = make_request_id(prompt)"),
+        ("9", "await stream_response(prompt, request_id)"),
+        ("10", "finally:"),
+        ("11", "shutdown()"),
+    ]
+
+
 def test_view_payload_subflow_uses_function_container_steps(tmp_path):
     source = tmp_path / "app.py"
     source.write_text(
@@ -413,6 +505,50 @@ def test_view_payload_subflow_merges_multiline_statement_steps(tmp_path):
             ["loop"],
         ),
         ("13", "print(output)", []),
+    ]
+
+
+def test_view_payload_subflow_merges_when_source_file_is_missing(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    stream_response()\n"
+        "def stream_response():\n"
+        "    sampling_params = SamplingParams(\n"
+        "        max_tokens=100,\n"
+        "        temperature=0.8,\n"
+        "    )\n"
+        "    for output in engine.generate(\n"
+        "        request_id=request_id\n"
+        "    ):\n"
+        "        print(output)\n",
+        encoding="utf-8",
+    )
+    main_2 = frame("main", str(source), 2)
+    stream_4 = frame("stream_response", str(source), 4)
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[main_2]),
+            stopped("evt_02", "stream_response", str(source), 4, stack=[stream_4, main_2], command="stepIn"),
+            stopped("evt_03", "stream_response", str(source), 5, stack=[frame("stream_response", str(source), 5), main_2]),
+            stopped("evt_04", "stream_response", str(source), 6, stack=[frame("stream_response", str(source), 6), main_2]),
+            stopped("evt_05", "stream_response", str(source), 4, stack=[frame("stream_response", str(source), 4), main_2]),
+            stopped("evt_06", "stream_response", str(source), 8, stack=[frame("stream_response", str(source), 8), main_2]),
+            stopped("evt_07", "stream_response", str(source), 9, stack=[frame("stream_response", str(source), 9), main_2]),
+            stopped("evt_08", "stream_response", str(source), 8, stack=[frame("stream_response", str(source), 8), main_2]),
+            stopped("evt_09", "stream_response", str(source), 11, stack=[frame("stream_response", str(source), 11), main_2]),
+        ]
+    )
+
+    source.unlink()
+
+    payload = _view_payload(graph=graph, scenario="missing source", session={})
+    steps = payload["subflows"][0]["steps"]
+
+    assert [(step["line_text"], step["source_text"]) for step in steps] == [
+        ("4-6", "sampling_params = SamplingParams(max_tokens=100, temperature=0.8,"),
+        ("8-9", "for output in engine.generate(request_id=request_id"),
+        ("11", "print(output)"),
     ]
 
 
