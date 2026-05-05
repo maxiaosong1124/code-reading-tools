@@ -6,20 +6,20 @@ requires-python = ">=3.12"
 name = "coderead"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "debugpy" },
+]
 
 [package.dev-dependencies]
 dev = [
-    { name = "debugpy" },
     { name = "pytest" },
 ]
 
 [package.metadata]
+requires-dist = [{ name = "debugpy", specifier = ">=1.8" }]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "debugpy", specifier = ">=1.8" },
-    { name = "pytest", specifier = ">=8.0" },
-]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "colorama"

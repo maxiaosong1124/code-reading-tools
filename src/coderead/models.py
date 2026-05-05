@@ -126,8 +126,11 @@ class FlowNode:
     file: str
     line: int
     language: str
+    end_line: int | None = None
+    parent_id: str | None = None
     hit_count: int = 0
     kinds: set[str] = field(default_factory=lambda: {"function_location"})
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -137,8 +140,11 @@ class FlowNode:
             "function": self.function,
             "file": self.file,
             "line": self.line,
+            "end_line": self.end_line,
+            "parent_id": self.parent_id,
             "language": self.language,
             "hit_count": self.hit_count,
+            "metadata": self.metadata,
         }
 
 

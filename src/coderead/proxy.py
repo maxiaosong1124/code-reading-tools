@@ -24,6 +24,7 @@ ObserverResult = (
     | None
 )
 ByteObserver = Callable[[bytes], ObserverResult]
+ObserverFactory = Callable[[], tuple[ByteObserver | None, ByteObserver | None]]
 
 
 async def run_proxy(
@@ -41,6 +42,55 @@ async def run_proxy(
         on_ready,
     )
     return process
+
+
+async def run_proxy_server(
+    real_adapter: Sequence[str],
+    *,
+    host: str,
+    port: int,
+    observer_factory: ObserverFactory | None = None,
+    on_listening: Callable[[str, int], None] | None = None,
+) -> int:
+    return await asyncio.to_thread(
+        _run_proxy_server_blocking,
+        real_adapter,
+        host,
+        port,
+        observer_factory,
+        on_listening,
+    )
+
+
+def _run_proxy_server_blocking(
+    real_adapter: Sequence[str],
+    host: str,
+    port: int,
+    observer_factory: ObserverFactory | None,
+    on_listening: Callable[[str, int], None] | None,
+) -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((host, port))
+        server.listen(1)
+        if on_listening is not None:
+            on_listening(host, port)
+        while True:
+            client, _ = server.accept()
+            with client:
+                client_observer, adapter_observer = (observer_factory or _empty_observer_factory)()
+                _run_socket_proxy_session(
+                    client,
+                    real_adapter=real_adapter,
+                    on_client_chunk=client_observer,
+                    on_adapter_chunk=adapter_observer,
+                )
+
+
+def _empty_observer_factory() -> tuple[None, None]:
+    return None, None
 
 
 def _run_proxy_blocking(
@@ -72,6 +122,87 @@ def _run_proxy_blocking(
         process=process,
     )
     return process.wait()
+
+
+def _run_socket_proxy_session(
+    client,
+    *,
+    real_adapter: Sequence[str],
+    on_client_chunk: ByteObserver | None,
+    on_adapter_chunk: ByteObserver | None,
+) -> int:
+    import subprocess
+
+    process = subprocess.Popen(
+        list(real_adapter),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=sys.stderr,
+    )
+    if process.stdin is None or process.stdout is None:
+        raise RuntimeError("failed to create adapter pipes")
+    try:
+        _socket_proxy_select_loop(
+            client=client,
+            adapter_writer=process.stdin,
+            adapter_reader=process.stdout,
+            on_client_chunk=on_client_chunk,
+            on_adapter_chunk=on_adapter_chunk,
+            process=process,
+        )
+    finally:
+        if process.poll() is None:
+            process.terminate()
+    return process.wait()
+
+
+def _socket_proxy_select_loop(
+    *,
+    client,
+    adapter_writer,
+    adapter_reader,
+    on_client_chunk: ByteObserver | None,
+    on_adapter_chunk: ByteObserver | None,
+    process,
+) -> None:
+    client_fd = client.fileno()
+    adapter_fd = adapter_reader.fileno()
+    open_fds = {client_fd, adapter_fd}
+    while open_fds and process.poll() is None:
+        readable, _, _ = select.select(list(open_fds), [], [], 0.1)
+        for fd in readable:
+            if fd == client_fd:
+                chunk = client.recv(8192)
+                if not chunk:
+                    return
+                _process_blocking_chunk(chunk, adapter_writer, on_client_chunk)
+            else:
+                chunk = os.read(fd, 8192)
+                if not chunk:
+                    return
+                _process_socket_adapter_chunk(
+                    chunk,
+                    client=client,
+                    adapter_writer=adapter_writer,
+                    observer=on_adapter_chunk,
+                )
+
+
+def _process_socket_adapter_chunk(
+    chunk: bytes,
+    *,
+    client,
+    adapter_writer,
+    observer: ByteObserver | None,
+) -> None:
+    forward_chunk = chunk
+    if observer is not None:
+        observation = asyncio.run(_resolve_observer_result(observer(chunk), original_chunk=chunk))
+        forward_chunk = observation.forward_chunk
+        for injected in observation.inject_to_writer:
+            _write_chunk_blocking(adapter_writer, injected)
+    if forward_chunk:
+        client.sendall(forward_chunk)
 
 
 def _proxy_select_loop(

@@ -11,13 +11,15 @@ requires-python = ">=3.12"
 authors = [
   { name = "code_reading_tools" }
 ]
+dependencies = [
+  "debugpy>=1.8"
+]
 
 [project.scripts]
 coderead = "coderead.cli:main"
 
 [dependency-groups]
 dev = [
-  "debugpy>=1.8",
   "pytest>=8.0"
 ]
 

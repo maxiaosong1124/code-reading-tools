@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,7 +17,16 @@ class TraceStore:
     events_path: Path
 
     @classmethod
-    def create(cls, root: str | Path, session_id: str, adapter: str) -> TraceStore:
+    def create(
+        cls,
+        root: str | Path,
+        session_id: str,
+        adapter: str,
+        *,
+        scenario: str | None = None,
+        cwd: str | None = None,
+        command: list[str] | None = None,
+    ) -> TraceStore:
         root_path = Path(root)
         session_dir = root_path / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -27,6 +37,9 @@ class TraceStore:
             "session_id": session_id,
             "adapter": adapter,
             "created_at": datetime.now(UTC).isoformat(),
+            "scenario": scenario or "",
+            "cwd": cwd or os.getcwd(),
+            "command": command or [],
         }
         session_path.write_text(
             json.dumps(session, ensure_ascii=False, indent=2) + "\n",
@@ -47,6 +60,10 @@ def load_events_jsonl(path: str | Path) -> list[TraceEvent]:
         if line.strip():
             events.append(TraceEvent.from_dict(json.loads(line)))
     return events
+
+
+def load_session_metadata(path: str | Path) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def dump_events_jsonl(events: Iterable[TraceEvent], path: str | Path) -> Path:
