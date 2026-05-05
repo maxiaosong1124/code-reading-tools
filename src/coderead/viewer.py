@@ -534,11 +534,91 @@ def _subflow_payload(graph: FlowGraph, node: FlowNode) -> dict[str, Any]:
         )
         for call_child in call_children_by_line.get(line, []):
             steps.append(_node_payload(call_child))
+    _merge_multiline_steps(steps)
     return {
         **_node_payload(node),
         "kind": "function_container",
         "steps": steps,
     }
+
+
+def _merge_multiline_steps(steps: list[dict[str, Any]]) -> None:
+    merged: list[dict[str, Any]] = []
+    i = 0
+    while i < len(steps):
+        step = steps[i]
+        if step.get("kind") != "trace_line":
+            merged.append(step)
+            i += 1
+            continue
+        source = step.get("source_text", "")
+        acc_balance = _bracket_balance(source)
+        if acc_balance <= 0:
+            merged.append(step)
+            i += 1
+            continue
+        merged_sources = [source]
+        start_line = step["line"]
+        end_line = step["line"]
+        step_depth = step.get("depth", 0)
+        j = i + 1
+        while j < len(steps):
+            next_step = steps[j]
+            if next_step.get("kind") != "trace_line":
+                break
+            next_source = next_step.get("source_text", "")
+            if next_step.get("depth", 0) != step_depth:
+                break
+            prev_ends = _ends_continuation(merged_sources[-1])
+            if _starts_new_statement(next_source, accumulated_balance=acc_balance, prev_ends_continuation=prev_ends):
+                break
+            next_balance = _bracket_balance(next_source)
+            acc_balance += next_balance
+            merged_sources.append(next_source)
+            end_line = next_step["line"]
+            j += 1
+            if acc_balance <= 0:
+                break
+        if len(merged_sources) > 1:
+            merged_text = _compact_source_text(" ".join(merged_sources))
+            merged_step = dict(step)
+            merged_step["source_text"] = merged_text or step.get("source_text", "")
+            merged_step["line_text"] = str(start_line) if start_line == end_line else f"{start_line}-{end_line}"
+            merged.append(merged_step)
+            i = j
+        else:
+            merged.append(step)
+            i += 1
+    steps[:] = merged
+
+
+def _ends_continuation(source_text: str) -> bool:
+    stripped = source_text.rstrip()
+    return stripped.endswith((",", "(", "[", "{", "\\"))
+
+
+def _starts_new_statement(source_text: str, accumulated_balance: int = 0, prev_ends_continuation: bool = False) -> bool:
+    stripped = source_text.strip()
+    keywords = ("if ", "elif ", "else:", "for ", "while ", "try:", "except", "finally:", "with ", "async ", "def ", "class ", "return ", "raise ", "yield ", "assert ", "del ", "global ", "nonlocal ", "pass", "break", "continue", "import ", "from ")
+    if any(stripped.startswith(kw) for kw in keywords):
+        return True
+    if stripped.startswith((")", "]", "}")):
+        return False
+    if accumulated_balance <= 0:
+        return _is_standalone_statement(stripped)
+    if not prev_ends_continuation and _is_standalone_statement(stripped):
+        return True
+    return False
+
+
+def _is_standalone_statement(source_text: str) -> bool:
+    if not source_text:
+        return False
+    try:
+        ast.parse(source_text)
+        return True
+    except SyntaxError:
+        return False
 
 
 def _call_children_by_line(graph: FlowGraph, node: FlowNode) -> dict[int, list[FlowNode]]:
@@ -602,7 +682,50 @@ def _infer_statement_lookup_from_children(children: list[FlowNode]) -> dict[int,
     return lookup
 
 
+def _strip_inline_comment(text: str) -> str:
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_single:
+            if ch == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if ch == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if ch == "#":
+            return text[:i].rstrip()
+        if ch == "'":
+            if text[i : i + 3] == "'''":
+                end = text.find("'''", i + 3)
+                if end >= 0:
+                    i = end + 3
+                    continue
+            in_single = True
+        elif ch == '"':
+            if text[i : i + 3] == '"""':
+                end = text.find('"""', i + 3)
+                if end >= 0:
+                    i = end + 3
+                    continue
+            in_double = True
+        i += 1
+    return text
+
+
 def _bracket_balance(text: str) -> int:
+    text = _strip_inline_comment(text)
     depth = 0
     in_str: str | None = None
     index = 0
@@ -921,7 +1044,7 @@ def _read_source_lines(source_text: str, start_line: int, end_line: int) -> str:
     snippets = []
     for line_number in range(start_line, end_line + 1):
         if 1 <= line_number <= len(source_lines):
-            snippet = source_lines[line_number - 1].strip()
+            snippet = _strip_inline_comment(source_lines[line_number - 1]).strip()
             if snippet and not snippet.startswith("#"):
                 snippets.append(snippet)
     return _compact_source_text("\n".join(snippets))
@@ -942,7 +1065,11 @@ def _compact_python_statement(source_text: str, start_line: int, end_line: int) 
 
 
 def _compact_source_text(source_text: str) -> str:
-    compact = " ".join(line.strip() for line in source_text.splitlines() if line.strip() and not line.strip().startswith("#"))
+    compact = " ".join(
+        _strip_inline_comment(line).strip()
+        for line in source_text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
     for opener, closer in (("(", ")"), ("[", "]"), ("{", "}")):
         compact = compact.replace(f"{opener} ", opener).replace(f" {closer}", closer)
         compact = compact.replace(f",{closer}", closer).replace(f", {closer}", closer)
