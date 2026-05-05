@@ -35,7 +35,7 @@ def test_stopped_event_injects_stack_trace_request_for_thread():
         )
     )
 
-    messages = decode_messages(injected)
+    messages = decode_messages(injected.inject_to_adapter)
     assert messages == [
         {
             "seq": 1,
@@ -59,7 +59,7 @@ def test_stack_trace_response_creates_trace_event():
             }
         )
     )
-    stack_request = decode_messages(injected)[0]
+    stack_request = decode_messages(injected.inject_to_adapter)[0]
 
     capture.observe_adapter_bytes(
         encode_message(
@@ -105,6 +105,46 @@ def test_stack_trace_response_creates_trace_event():
     assert event.top_frame.line == 81
     assert event.top_frame.column == 5
     assert [frame.function for frame in event.stack] == ["forward", "main"]
+
+
+def test_internal_stack_trace_response_is_removed_from_forwarded_adapter_bytes():
+    capture = DapTraceCapture(session_id="sess_dap", adapter="debugpy")
+    injected = capture.observe_adapter_bytes(
+        encode_message(
+            {
+                "seq": 11,
+                "type": "event",
+                "event": "stopped",
+                "body": {"reason": "step", "threadId": 7},
+            }
+        )
+    )
+    request = decode_messages(injected.inject_to_adapter)[0]
+    internal_response = encode_message(
+        {
+            "seq": 12,
+            "type": "response",
+            "request_seq": request["seq"],
+            "success": True,
+            "command": "stackTrace",
+            "body": {
+                "stackFrames": [
+                    {
+                        "id": 100,
+                        "name": "forward",
+                        "source": {"path": "/repo/model.py"},
+                        "line": 81,
+                        "column": 5,
+                    }
+                ]
+            },
+        }
+    )
+
+    observed = capture.observe_adapter_bytes(internal_response)
+
+    assert observed.forward_to_client == b""
+    assert len(capture.pop_events()) == 1
 
 
 def test_pop_events_drains_buffer():

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 from coderead.dap_capture import DapTraceCapture
 from coderead.graph import build_flow_graph
 from coderead.mermaid import render_mermaid
-from coderead.proxy import ByteObserver
+from coderead.proxy import ByteObserver, PipeObservation
 from coderead.proxy import run_proxy
 from coderead.store import TraceStore, dump_graph_json, load_events_jsonl
 
@@ -53,7 +54,7 @@ def _graph_command(args: argparse.Namespace) -> int:
 def _trace_command(args: argparse.Namespace) -> int:
     session_id = f"sess_{uuid4().hex[:12]}"
     store = TraceStore.create(args.out_dir, session_id=session_id, adapter=args.adapter)
-    print(store.session_dir)
+    print(store.session_dir, file=sys.stderr)
     return 0
 
 
@@ -64,12 +65,12 @@ def _proxy_command(args: argparse.Namespace) -> int:
         out_dir=args.out_dir,
         adapter="dap",
     )
-    print(store.session_dir)
     return asyncio.run(
         run_proxy(
             args.real_adapter,
             on_client_chunk=client_observer,
             on_adapter_chunk=adapter_observer,
+            on_ready=lambda: print(store.session_dir, file=sys.stderr, flush=True),
         )
     )
 
@@ -90,9 +91,12 @@ def create_proxy_trace_observers(
         return injected
 
     def adapter_observer(chunk: bytes) -> list[bytes]:
-        injected = capture.observe_adapter_bytes(chunk)
+        observed = capture.observe_adapter_bytes(chunk)
         _flush_capture_events(capture, store)
-        return injected
+        return PipeObservation(
+            inject_to_writer=observed.inject_to_adapter,
+            forward_chunk=observed.forward_to_client,
+        )
 
     return client_observer, adapter_observer, store
 
@@ -100,3 +104,7 @@ def create_proxy_trace_observers(
 def _flush_capture_events(capture: DapTraceCapture, store: TraceStore) -> None:
     for event in capture.pop_events():
         store.append_event(event)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

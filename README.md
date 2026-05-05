@@ -28,10 +28,10 @@ uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .
 uv run coderead proxy --out-dir .coderead-traces --real-adapter python -m debugpy.adapter
 ```
 
-`proxy` command 会创建 trace session directory，并在观察到 DAP `stopped` + `stackTrace` response 后写入 `events.jsonl`。当前实现已在协议层 tests 中验证，下一步需要用真实 VS Code + debugpy 做端到端配置验证。
+`proxy` command 会创建 trace session directory，并在观察到 DAP `stopped` + `stackTrace` response 后写入 `events.jsonl`。当前实现已通过 subprocess DAP E2E fixture 验证完整 capture 链路，并通过真实 `debugpy.adapter` initialize sanity test 验证 adapter 基础通信。
 
 ## 当前限制
 
-- `stackTrace` request 由 proxy 注入到底层 adapter，真实 adapter 是否接受这种旁路 request 需要在 debugpy/cppdbg/cuda-gdb adapter 上逐个验证。
+- `stackTrace` request 由 proxy 注入到底层 adapter，当前完整 stopped capture 使用 DAP fixture 验证；真实 VS Code + debugpy stopped flow 仍需要后续手动配置验证。
 - 当前 capture 只记录 stop 后的 stack frames，不记录 scopes、variables 或 CUDA block/thread metadata。
 - 当前还没有 VS Code extension，需要手动配置 adapter proxy。

@@ -80,7 +80,7 @@ def test_proxy_trace_observers_write_captured_events(tmp_path):
     )
 
     events = load_events_jsonl(store.events_path)
-    assert len(injected) == 1
+    assert len(injected.inject_to_writer) == 1
     assert len(events) == 1
     assert events[0].command_before_stop == "next"
     assert events[0].top_frame.function == "main"

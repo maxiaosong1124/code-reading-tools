@@ -18,6 +18,12 @@ class PendingStop:
     command_before_stop: str | None
 
 
+@dataclass(frozen=True)
+class ObservedAdapterChunk:
+    inject_to_adapter: list[bytes]
+    forward_to_client: bytes
+
+
 class DapTraceCapture:
     def __init__(self, session_id: str, adapter: str) -> None:
         self.session_id = session_id
@@ -36,14 +42,18 @@ class DapTraceCapture:
                 self.last_step_command = message["command"]
         return []
 
-    def observe_adapter_bytes(self, data: bytes) -> list[bytes]:
+    def observe_adapter_bytes(self, data: bytes) -> ObservedAdapterChunk:
         injected = []
+        should_filter_original = False
         for message in self._adapter_buffer.feed(data):
             if message.get("type") == "event" and message.get("event") == "stopped":
                 injected.append(self._handle_stopped(message))
             elif message.get("type") == "response" and message.get("command") == "stackTrace":
-                self._handle_stack_trace_response(message)
-        return injected
+                should_filter_original = self._handle_stack_trace_response(message)
+        return ObservedAdapterChunk(
+            inject_to_adapter=injected,
+            forward_to_client=b"" if should_filter_original else data,
+        )
 
     def pop_events(self) -> list[TraceEvent]:
         events = list(self._events)
@@ -69,18 +79,18 @@ class DapTraceCapture:
             }
         )
 
-    def _handle_stack_trace_response(self, message: dict[str, Any]) -> None:
+    def _handle_stack_trace_response(self, message: dict[str, Any]) -> bool:
         request_seq = int(message.get("request_seq", 0))
         pending = self._pending_stack_requests.pop(request_seq, None)
         if pending is None or not message.get("success", False):
-            return
+            return False
 
         frames = [
             _stack_frame_from_dap(frame)
             for frame in message.get("body", {}).get("stackFrames", [])
         ]
         if not frames:
-            return
+            return True
 
         self._event_counter += 1
         self._events.append(
@@ -98,6 +108,7 @@ class DapTraceCapture:
                 metadata={"source": "dap"},
             )
         )
+        return True
 
 
 def _stack_frame_from_dap(frame: dict[str, Any]) -> StackFrame:
