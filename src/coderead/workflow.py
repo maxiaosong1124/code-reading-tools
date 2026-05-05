@@ -261,7 +261,7 @@ def _tasks_json(config: dict[str, Any]) -> dict[str, Any]:
                 "label": "CodeRead: Start Proxy",
                 "type": "shell",
                 "command": (
-                    "rtk uv run coderead proxy-server "
+                    "coderead proxy-server "
                     f"--host 127.0.0.1 --port {port} --out-dir {trace_dir} "
                     f'--scenario "{scenario}" '
                     f"--real-adapter {real_adapter}"

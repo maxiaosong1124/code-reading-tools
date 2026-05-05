@@ -14,7 +14,7 @@
 
 - 每完成一个 step，立即把本文件对应 checkbox 从 `[ ]` 改为 `[x]`。
 - 每完成一个功能或 task，运行本计划中对应测试命令。
-- Python 环境和命令统一使用 `uv`；验证命令使用 `rtk uv run ...`。
+- Python 环境和命令统一使用 `uv`；验证命令使用 `uv run ...`。
 - 新增文档和面向用户说明使用中文；专业术语保留英文。
 - 遵循 TDD：先写 failing test，再实现。
 
@@ -46,7 +46,7 @@
 
 - [x] **Step 2: 运行 targeted tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_dap_capture.py tests/test_proxy.py -q`
+Run: `uv run pytest tests/test_dap_capture.py tests/test_proxy.py -q`
 
 Expected: fails because capture/proxy 还不支持 replacement bytes。
 
@@ -60,7 +60,7 @@ Expected: fails because capture/proxy 还不支持 replacement bytes。
 
 - [x] **Step 4: 运行 targeted tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_dap_capture.py tests/test_proxy.py -q`
+Run: `uv run pytest tests/test_dap_capture.py tests/test_proxy.py -q`
 
 Expected: all tests pass。
 
@@ -87,7 +87,7 @@ Expected: all tests pass。
 
 - [x] **Step 3: 运行 debugpy E2E test 并确认失败或暴露问题**
 
-Run: `rtk uv run pytest tests/test_debugpy_e2e.py -q`
+Run: `uv run pytest tests/test_debugpy_e2e.py -q`
 
 Expected: 初次运行可能失败，失败信息应指向真实 DAP 流程或 proxy wiring 问题。
 
@@ -97,7 +97,7 @@ Expected: 初次运行可能失败，失败信息应指向真实 DAP 流程或 p
 
 - [x] **Step 5: 运行 debugpy E2E test 并确认通过**
 
-Run: `rtk uv run pytest tests/test_debugpy_e2e.py -q`
+Run: `uv run pytest tests/test_debugpy_e2e.py -q`
 
 Expected: all tests pass。
 
@@ -113,19 +113,19 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行完整 tests**
 
-Run: `rtk uv run pytest -q`
+Run: `uv run pytest -q`
 
 Expected: all tests pass。
 
 - [x] **Step 3: 运行 compile check**
 
-Run: `rtk uv run python -m compileall src tests`
+Run: `uv run python -m compileall src tests`
 
 Expected: compilation succeeds。
 
 - [x] **Step 4: 检查 git status**
 
-Run: `rtk git status --short`
+Run: `git status --short`
 
 Expected: only intended files are modified or added。
 

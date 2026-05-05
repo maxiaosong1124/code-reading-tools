@@ -15,7 +15,7 @@
 - 每完成一个 step，立即把本文件对应 checkbox 从 `[ ]` 改为 `[x]`。
 - 每完成一个功能或 task，运行本计划中对应测试命令。
 - 测试失败时先修复并重新验证，不跳过失败结果。
-- Python 环境和命令统一使用 `uv`；验证命令使用 `rtk uv run ...`。
+- Python 环境和命令统一使用 `uv`；验证命令使用 `uv run ...`。
 - 所有新增文档和面向用户说明使用中文；专业术语保留英文。
 - 当前仓库已初始化 git；提交时使用清晰的中文或英文 conventional commit message。
 
@@ -57,7 +57,7 @@
 
 - [x] **Step 4: 验证 package import**
 
-Run: `rtk uv run python -m compileall src`
+Run: `uv run python -m compileall src`
 
 Expected: compilation succeeds。
 
@@ -74,7 +74,7 @@ Expected: compilation succeeds。
 
 - [x] **Step 2: 运行 graph tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_graph.py -q`
+Run: `uv run pytest tests/test_graph.py -q`
 
 Expected: fails because `coderead.models` or `coderead.graph` does not exist。
 
@@ -93,7 +93,7 @@ Expected: fails because `coderead.models` or `coderead.graph` does not exist。
 
 - [x] **Step 4: 运行 graph tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_graph.py -q`
+Run: `uv run pytest tests/test_graph.py -q`
 
 Expected: all tests pass。
 
@@ -111,7 +111,7 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行 tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_store.py tests/test_graph.py -q`
+Run: `uv run pytest tests/test_store.py tests/test_graph.py -q`
 
 Expected: store 和 Mermaid imports fail。
 
@@ -121,7 +121,7 @@ Expected: store 和 Mermaid imports fail。
 
 - [x] **Step 4: 运行 tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_store.py tests/test_graph.py -q`
+Run: `uv run pytest tests/test_store.py tests/test_graph.py -q`
 
 Expected: all tests pass。
 
@@ -137,7 +137,7 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行 DAP tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_dap.py -q`
+Run: `uv run pytest tests/test_dap.py -q`
 
 Expected: fails because `coderead.dap` does not exist。
 
@@ -147,7 +147,7 @@ Expected: fails because `coderead.dap` does not exist。
 
 - [x] **Step 4: 运行 DAP tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_dap.py -q`
+Run: `uv run pytest tests/test_dap.py -q`
 
 Expected: all tests pass。
 
@@ -164,7 +164,7 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行 CLI test 并确认失败**
 
-Run: `rtk uv run pytest tests/test_cli.py -q`
+Run: `uv run pytest tests/test_cli.py -q`
 
 Expected: fails because `coderead.cli` does not exist。
 
@@ -184,7 +184,7 @@ Expected: fails because `coderead.cli` does not exist。
 
 - [x] **Step 5: 运行 CLI test 并确认通过**
 
-Run: `rtk uv run pytest tests/test_cli.py -q`
+Run: `uv run pytest tests/test_cli.py -q`
 
 Expected: all tests pass。
 
@@ -195,19 +195,19 @@ Expected: all tests pass。
 
 - [x] **Step 1: 运行完整 test suite**
 
-Run: `rtk uv run pytest -q`
+Run: `uv run pytest -q`
 
 Expected: all tests pass。
 
 - [x] **Step 2: 运行 compile check**
 
-Run: `rtk uv run python -m compileall src tests`
+Run: `uv run python -m compileall src tests`
 
 Expected: compilation succeeds。
 
 - [x] **Step 3: 检查 git status**
 
-Run: `rtk git status --short`
+Run: `git status --short`
 
 Expected: only intended files are modified or added。
 

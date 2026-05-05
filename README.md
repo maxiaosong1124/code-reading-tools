@@ -23,13 +23,13 @@
 从 GitHub 安装：
 
 ```bash
-rtk uv tool install git+https://github.com/USER/REPO.git
+uv tool install git+https://github.com/USER/REPO.git
 ```
 
 本地开发版本安装：
 
 ```bash
-rtk uv tool install --reinstall /home/maxiaosong/work_space/code_reading_tools
+uv tool install --reinstall /home/maxiaosong/work_space/code_reading_tools
 ```
 
 安装后，在任意要阅读的开源项目根目录启动通用 proxy：
@@ -79,15 +79,15 @@ coderead serve
 coderead render
 coderead watch
 coderead samples vscode
-rtk uv run coderead trace --out-dir .coderead-traces
-rtk uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session
-rtk uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --scenario "验证配置加载路径"
-rtk uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --view function
-rtk uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --view line
-rtk uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --profile vllm --include-path /path/to/vllm/examples --exclude-module torch --exclude-module transformers --exclude-module ray
-rtk uv run coderead proxy --out-dir .coderead-traces --real-adapter python -m debugpy.adapter
-rtk uv run coderead proxy-server --host 127.0.0.1 --port 47111 --out-dir .coderead-traces --scenario "验证 normalize_numbers 奇偶分支" --real-adapter python -m debugpy.adapter
-rtk uv run coderead init --profile default --program app.py --scenario "阅读入口流程"
+uv run coderead trace --out-dir .coderead-traces
+uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session
+uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --scenario "验证配置加载路径"
+uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --view function
+uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --view line
+uv run coderead graph --events .coderead-traces/session/events.jsonl --out-dir .coderead-traces/session --profile vllm --include-path /path/to/vllm/examples --exclude-module torch --exclude-module transformers --exclude-module ray
+uv run coderead proxy --out-dir .coderead-traces --real-adapter python -m debugpy.adapter
+uv run coderead proxy-server --host 127.0.0.1 --port 47111 --out-dir .coderead-traces --scenario "验证 normalize_numbers 奇偶分支" --real-adapter python -m debugpy.adapter
+uv run coderead init --profile default --program app.py --scenario "阅读入口流程"
 ```
 
 `proxy` command 会创建 trace session directory，并在观察到 DAP `stopped` + `stackTrace` response 后写入 `events.jsonl`。当前实现已通过 subprocess DAP E2E fixture 验证完整 capture 链路，并通过真实 `debugpy.adapter` initialize sanity test 验证 adapter 基础通信。
@@ -110,7 +110,7 @@ rtk uv run coderead init --profile default --program app.py --scenario "阅读�
 如果需要手动调用底层 `graph`，可以显式指定入口脚本目录：
 
 ```bash
-rtk uv run coderead graph \
+uv run coderead graph \
   --events .coderead-traces/session/events.jsonl \
   --out-dir .coderead-traces/session_output \
   --profile vllm \
@@ -133,7 +133,7 @@ rtk uv run coderead graph \
 先在仓库根目录启动通用 proxy：
 
 ```bash
-rtk uv run coderead serve
+uv run coderead serve
 ```
 
 然后用 VS Code 打开 `examples/python_debuggee`，选择 `CodeRead: Python debugpy 示例` 开始调试。

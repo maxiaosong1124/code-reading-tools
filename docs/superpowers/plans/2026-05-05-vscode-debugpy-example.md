@@ -23,8 +23,8 @@
 ## 验证命令
 
 ```bash
-rtk uv run pytest -q
-rtk uv run python -m compileall src tests examples
+uv run pytest -q
+uv run python -m compileall src tests examples
 ```
 
 ## 手动验证范围

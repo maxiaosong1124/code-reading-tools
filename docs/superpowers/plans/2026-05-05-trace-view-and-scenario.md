@@ -43,8 +43,8 @@
 ## 验证命令
 
 ```bash
-rtk uv run pytest tests/test_graph.py -q
-rtk uv run pytest tests/test_cli.py tests/test_store.py -q
-rtk uv run pytest -q
-rtk uv run python -m compileall src tests examples
+uv run pytest tests/test_graph.py -q
+uv run pytest tests/test_cli.py tests/test_store.py -q
+uv run pytest -q
+uv run python -m compileall src tests examples
 ```

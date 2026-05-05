@@ -7,7 +7,7 @@
 在仓库根目录执行：
 
 ```bash
-rtk uv run coderead proxy-server \
+uv run coderead proxy-server \
   --host 127.0.0.1 \
   --port 47111 \
   --out-dir .coderead-traces \
@@ -71,7 +71,7 @@ CodeRead: Python debugpy 示例
 回到仓库根目录，查看最近生成的 session：
 
 ```bash
-rtk find .coderead-traces -maxdepth 2 -type f
+find .coderead-traces -maxdepth 2 -type f
 ```
 
 你应该能看到类似：
@@ -84,7 +84,7 @@ rtk find .coderead-traces -maxdepth 2 -type f
 查看事件：
 
 ```bash
-rtk sed -n '1,20p' .coderead-traces/sess_xxxxxxxxxxxx/events.jsonl
+sed -n '1,20p' .coderead-traces/sess_xxxxxxxxxxxx/events.jsonl
 ```
 
 把 `sess_xxxxxxxxxxxx` 替换成实际生成的 session 目录。
@@ -94,7 +94,7 @@ rtk sed -n '1,20p' .coderead-traces/sess_xxxxxxxxxxxx/events.jsonl
 默认生成更适合源码回顾的 trace-level 阅读图。它会过滤 Python runtime frame 和 module wrapper，隐藏单线程 `thread` label，把调用边显示为更容易阅读的 `call` / `return`。主线节点保持在外层，step into 的函数会用独立 `subgraph` 表达子流程；子流程框内默认展示源码行 summary，并标注 `loop`、`branch`、`return`，不画内部 step/loop 回边。Mermaid 图默认不显示 hit count，减少视觉噪声：
 
 ```bash
-rtk uv run coderead graph \
+uv run coderead graph \
   --events .coderead-traces/sess_xxxxxxxxxxxx/events.jsonl \
   --out-dir .coderead-traces/sess_xxxxxxxxxxxx \
   --scenario "验证 normalize_numbers 奇偶分支"
@@ -112,7 +112,7 @@ rtk uv run coderead graph \
 如果你想查看函数聚合图，可以显式生成 function-level 图：
 
 ```bash
-rtk uv run coderead graph \
+uv run coderead graph \
   --events .coderead-traces/sess_xxxxxxxxxxxx/events.jsonl \
   --out-dir .coderead-traces/sess_xxxxxxxxxxxx \
   --view function
@@ -121,7 +121,7 @@ rtk uv run coderead graph \
 如果你想查看每一次 debug stop 的逐行细节，可以显式生成 line-level 图：
 
 ```bash
-rtk uv run coderead graph \
+uv run coderead graph \
   --events .coderead-traces/sess_xxxxxxxxxxxx/events.jsonl \
   --out-dir .coderead-traces/sess_xxxxxxxxxxxx \
   --view line

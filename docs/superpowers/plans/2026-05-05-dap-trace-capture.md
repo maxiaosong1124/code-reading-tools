@@ -14,7 +14,7 @@
 
 - 每完成一个 step，立即把本文件对应 checkbox 从 `[ ]` 改为 `[x]`。
 - 每完成一个功能或 task，运行本计划中对应测试命令。
-- Python 环境和命令统一使用 `uv`；验证命令使用 `rtk uv run ...`。
+- Python 环境和命令统一使用 `uv`；验证命令使用 `uv run ...`。
 - 新增文档和面向用户说明使用中文；专业术语保留英文。
 - 遵循 TDD：先写 failing test，再实现。
 
@@ -46,7 +46,7 @@
 
 - [x] **Step 2: 运行 DAP capture tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_dap_capture.py -q`
+Run: `uv run pytest tests/test_dap_capture.py -q`
 
 Expected: fails because `coderead.dap_capture` does not exist。
 
@@ -63,7 +63,7 @@ Expected: fails because `coderead.dap_capture` does not exist。
 
 - [x] **Step 4: 运行 DAP capture tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_dap_capture.py -q`
+Run: `uv run pytest tests/test_dap_capture.py -q`
 
 Expected: all tests pass。
 
@@ -79,7 +79,7 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行 proxy tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_proxy.py -q`
+Run: `uv run pytest tests/test_proxy.py -q`
 
 Expected: fails because `_pipe` currently ignores observer returned bytes。
 
@@ -89,7 +89,7 @@ Expected: fails because `_pipe` currently ignores observer returned bytes。
 
 - [x] **Step 4: 运行 proxy tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_proxy.py -q`
+Run: `uv run pytest tests/test_proxy.py -q`
 
 Expected: all tests pass。
 
@@ -105,7 +105,7 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行 CLI tests 并确认失败**
 
-Run: `rtk uv run pytest tests/test_cli.py -q`
+Run: `uv run pytest tests/test_cli.py -q`
 
 Expected: fails because CLI proxy 尚未接入 `DapTraceCapture`。
 
@@ -120,7 +120,7 @@ Expected: fails because CLI proxy 尚未接入 `DapTraceCapture`。
 
 - [x] **Step 4: 运行 CLI tests 并确认通过**
 
-Run: `rtk uv run pytest tests/test_cli.py -q`
+Run: `uv run pytest tests/test_cli.py -q`
 
 Expected: all tests pass。
 
@@ -136,19 +136,19 @@ Expected: all tests pass。
 
 - [x] **Step 2: 运行完整 tests**
 
-Run: `rtk uv run pytest -q`
+Run: `uv run pytest -q`
 
 Expected: all tests pass。
 
 - [x] **Step 3: 运行 compile check**
 
-Run: `rtk uv run python -m compileall src tests`
+Run: `uv run python -m compileall src tests`
 
 Expected: compilation succeeds。
 
 - [x] **Step 4: 检查 git status**
 
-Run: `rtk git status --short`
+Run: `git status --short`
 
 Expected: only intended files are modified or added。
 
