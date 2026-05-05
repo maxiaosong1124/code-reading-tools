@@ -8,6 +8,7 @@
       "program": "${workspaceFolder}/app.py",
       "console": "integratedTerminal",
       "justMyCode": false,
+      "subProcess": false,
       "debugServer": 47111
     }
   ]

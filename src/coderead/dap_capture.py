@@ -6,6 +6,7 @@ from typing import Any
 
 from coderead.dap import DapMessageBuffer, encode_message
 from coderead.models import StackFrame, TraceEvent
+from coderead.proxy import PipeObservation
 
 
 STEP_COMMANDS = {"next", "stepIn", "stepOut", "continue", "pause"}
@@ -36,10 +37,17 @@ class DapTraceCapture:
         self._event_counter = 0
         self._events: list[TraceEvent] = []
 
-    def observe_client_bytes(self, data: bytes) -> list[bytes]:
+    def observe_client_bytes(self, data: bytes) -> PipeObservation | list[bytes]:
+        injected = []
+        rewritten = False
         for message in self._client_buffer.feed(data):
             if message.get("type") == "request" and message.get("command") in STEP_COMMANDS:
                 self.last_step_command = message["command"]
+            if message.get("type") == "request" and message.get("command") == "launch":
+                injected.append(encode_message(_launch_with_subprocess_disabled(message)))
+                rewritten = True
+        if rewritten:
+            return PipeObservation(inject_to_writer=injected, forward_chunk=b"")
         return []
 
     def observe_adapter_bytes(self, data: bytes) -> ObservedAdapterChunk:
@@ -121,6 +129,12 @@ def _stack_frame_from_dap(frame: dict[str, Any]) -> StackFrame:
         column=int(frame.get("column", 0)),
         language=_language_from_path(path),
     )
+
+
+def _launch_with_subprocess_disabled(message: dict[str, Any]) -> dict[str, Any]:
+    arguments = dict(message.get("arguments") or {})
+    arguments.setdefault("subProcess", False)
+    return {**message, "arguments": arguments}
 
 
 def _language_from_path(path: str) -> str:

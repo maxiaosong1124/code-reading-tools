@@ -41,6 +41,14 @@ examples/python_debuggee
 "debugServer": 47111
 ```
 
+样例配置还会关闭 debugpy 的子进程自动接管：
+
+```json
+"subProcess": false
+```
+
+这对 vLLM 这类会启动后台 EngineCore 子进程的项目尤其重要，可以避免 debugpy auto attach 干扰父进程对子进程的启动和握手。
+
 这个配置会让 VS Code 连接本地 `coderead proxy-server`，再由 proxy-server 转发到真实 `debugpy.adapter`。
 
 ## 3. 手动调试

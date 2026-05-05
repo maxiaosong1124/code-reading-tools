@@ -1,5 +1,7 @@
 from coderead.dap import DapMessageBuffer, encode_message
 from coderead.dap_capture import DapTraceCapture
+from coderead.proxy import _resolve_observer_result
+import asyncio
 
 
 def decode_messages(chunks: list[bytes]) -> list[dict]:
@@ -19,6 +21,78 @@ def test_records_last_step_command_from_client_request():
 
     assert injected == []
     assert capture.last_step_command == "next"
+
+
+def test_launch_request_defaults_subprocess_to_false():
+    capture = DapTraceCapture(session_id="sess_dap", adapter="debugpy")
+
+    injected = capture.observe_client_bytes(
+        encode_message(
+            {
+                "seq": 20,
+                "type": "request",
+                "command": "launch",
+                "arguments": {"program": "/repo/examples/offline_inference/async_llm_streaming.py"},
+            }
+        )
+    )
+
+    messages = decode_messages(injected.inject_to_writer)
+    assert messages == [
+        {
+            "seq": 20,
+            "type": "request",
+            "command": "launch",
+            "arguments": {
+                "program": "/repo/examples/offline_inference/async_llm_streaming.py",
+                "subProcess": False,
+            },
+        }
+    ]
+
+
+def test_launch_request_replaces_original_client_chunk():
+    capture = DapTraceCapture(session_id="sess_dap", adapter="debugpy")
+    original = encode_message(
+        {
+            "seq": 20,
+            "type": "request",
+            "command": "launch",
+            "arguments": {"program": "/repo/app.py"},
+        }
+    )
+
+    observation = asyncio.run(_resolve_observer_result(capture.observe_client_bytes(original), original_chunk=original))
+
+    assert observation.forward_chunk == b""
+    assert decode_messages(observation.inject_to_writer)[0]["arguments"]["subProcess"] is False
+
+
+def test_launch_request_preserves_explicit_subprocess_setting():
+    capture = DapTraceCapture(session_id="sess_dap", adapter="debugpy")
+
+    injected = capture.observe_client_bytes(
+        encode_message(
+            {
+                "seq": 21,
+                "type": "request",
+                "command": "launch",
+                "arguments": {"program": "/repo/app.py", "subProcess": True},
+            }
+        )
+    )
+
+    assert decode_messages(injected.inject_to_writer)[0]["arguments"]["subProcess"] is True
+
+
+def test_non_launch_client_request_is_not_rewritten():
+    capture = DapTraceCapture(session_id="sess_dap", adapter="debugpy")
+
+    injected = capture.observe_client_bytes(
+        encode_message({"seq": 22, "type": "request", "command": "configurationDone"})
+    )
+
+    assert injected == []
 
 
 def test_stopped_event_injects_stack_trace_request_for_thread():

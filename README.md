@@ -44,6 +44,14 @@ coderead serve
 "debugServer": 47111
 ```
 
+对 vLLM 这类会启动后台 EngineCore 子进程的项目，建议同时关闭 debugpy 的子进程自动接管：
+
+```json
+"subProcess": false
+```
+
+CodeRead proxy 会在 `launch` request 中默认补上 `subProcess=false`，避免 debugpy auto attach 干扰 vLLM 父进程对子进程的管理；如果你确实需要调试 Python 子进程，可以在自己的 `launch.json` 里显式设置 `"subProcess": true`。
+
 如果需要样例，可以让工具直接输出通用 VS Code 配置：
 
 ```bash

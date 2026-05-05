@@ -159,6 +159,7 @@ def test_init_command_writes_coderead_config_and_vscode_files(tmp_path, monkeypa
     assert '"profile": "vllm"' in config
     assert '"program": "examples/offline_inference.py"' in config
     assert '"debugServer": 47111' in launch_json
+    assert '"subProcess": false' in launch_json
     assert "CodeRead: Start Proxy" in tasks_json
     assert "coderead proxy-server" in tasks_json
     assert "debugpy.adapter" in tasks_json
@@ -206,6 +207,7 @@ def test_samples_vscode_prints_generic_debugpy_launch_json(capsys):
     output = capsys.readouterr().out
     assert exit_code == 0
     assert '"debugServer": 47111' in output
+    assert '"subProcess": false' in output
     assert '"type": "debugpy"' in output
     assert "CodeRead" in output
     assert "vllm" not in output.lower()

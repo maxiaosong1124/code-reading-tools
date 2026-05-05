@@ -96,6 +96,7 @@ def vscode_launch_sample(*, adapter: str = "debugpy", port: int = DEFAULT_PORT) 
                 "program": "${file}",
                 "console": "integratedTerminal",
                 "justMyCode": False,
+                "subProcess": False,
                 "debugServer": port,
             }
         ],
@@ -242,6 +243,7 @@ def _launch_json(*, program: str, port: int) -> dict[str, Any]:
                 "program": "${workspaceFolder}/" + program,
                 "console": "integratedTerminal",
                 "justMyCode": False,
+                "subProcess": False,
                 "debugServer": port,
                 "preLaunchTask": "CodeRead: Start Proxy",
             }
