@@ -144,7 +144,7 @@ def render_trace_html(*, graph: FlowGraph, scenario: str, session: dict | None =
 
     function renderNode(node) {{
       const classes = `node ${{subflowById.has(node.id) ? "clickable" : ""}} ${{node.kind === "call_placeholder" ? "skipped-call" : ""}} ${{node.kind === "trace_line" ? "trace-line" : ""}}`;
-      const title = node.kind === "trace_line" ? (node.source_text || node.function) : node.function;
+      const title = node.kind === "trace_line" ? (node.display_text || node.source_text || node.function) : node.function;
       const moduleBadge = node.module_label ? `<span class="module-badge">${{escapeHtml(node.module_label)}}</span>` : "";
       return `<button type="button" class="${{classes}}" data-node-id="${{escapeHtml(node.id)}}"><strong>${{escapeHtml(title)}}</strong><br><code>${{escapeHtml(node.file_name)}}:${{escapeHtml(node.line_text)}}</code>${{moduleBadge}}</button>`;
     }}
@@ -162,7 +162,7 @@ def render_trace_html(*, graph: FlowGraph, scenario: str, session: dict | None =
         const kindClass = flowNodeClass(line.markers);
         const connector = index === 0 ? "" : '<div class="flow-connector"></div>';
         return `${{connector}}<div class="flow-node ${{kindClass}}" style="--depth: ${{line.depth || 0}}">
-          <div class="flow-node-inner"><code>${{escapeHtml(line.line)}}: ${{escapeHtml(line.source_text)}}</code>${{markers}}</div>
+          <div class="flow-node-inner"><code>${{escapeHtml(line.line_text || line.line)}}: ${{escapeHtml(line.source_text)}}</code>${{markers}}</div>
         </div>`;
       }}).join("");
       root.innerHTML = `<h2>${{escapeHtml(subflow.function)}}</h2>
@@ -435,22 +435,8 @@ def _visible_statement_ranges(path: str, function_name: str, start_line: int, en
 
 
 def _python_statement_ranges(path: str, function_name: str) -> list[tuple[int, int]]:
-    try:
-        source = Path(path).read_text(encoding="utf-8")
-        tree = ast.parse(source)
-    except (OSError, UnicodeDecodeError, SyntaxError):
-        return []
-    ranges: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
-            for statement in ast.walk(node):
-                if isinstance(statement, ast.stmt) and not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    lineno = getattr(statement, "lineno", 0)
-                    end_lineno = getattr(statement, "end_lineno", lineno)
-                    if lineno:
-                        ranges.append((lineno, end_lineno))
-            break
-    return sorted(set(ranges))
+    statements = _python_function_statements(path, function_name)
+    return sorted({(int(statement["line"]), int(statement["end_line"])) for statement in statements})
 
 
 def _fallback_visible_ranges(path: str, start_line: int, end_line: int) -> list[tuple[int, int]]:
@@ -489,7 +475,9 @@ def _call_breaks_for_segment(graph: FlowGraph, node: FlowNode) -> list[tuple[int
 
 def _subflow_payload(graph: FlowGraph, node: FlowNode) -> dict[str, Any]:
     children = [child for child in graph.nodes.values() if child.parent_id == node.id and "internal_line" in child.kinds]
-    structure = _python_function_structure(node.file, node.function)
+    statements = _python_function_statements(node.file, node.function)
+    structure = {int(statement["line"]): statement for statement in statements}
+    statement_by_line = _statement_lookup_by_line(statements)
     child_by_line = {child.line: child for child in children}
     sequence = node.metadata.get("internal_line_sequence")
     ordered_children = (
@@ -497,46 +485,110 @@ def _subflow_payload(graph: FlowGraph, node: FlowNode) -> dict[str, Any]:
         if isinstance(sequence, list)
         else sorted(children, key=lambda item: item.line)
     )
+    steps = []
+    previous_key: tuple[int, int] | None = None
+    for child in ordered_children:
+        statement = statement_by_line.get(child.line)
+        if statement is None:
+            statement = {
+                "line": child.line,
+                "end_line": child.line,
+                "depth": structure.get(child.line, {}).get("depth", 0),
+                "source_text": child.metadata.get("source_text", ""),
+                "markers": structure.get(child.line, {}).get(
+                    "markers",
+                    _source_markers(child.metadata.get("source_text", "")),
+                ),
+            }
+        line = int(statement["line"])
+        end_line = int(statement["end_line"])
+        key = (line, end_line)
+        if key == previous_key:
+            continue
+        previous_key = key
+        steps.append(
+            {
+                "line": line,
+                "depth": int(statement.get("depth", 0)),
+                "function": child.function,
+                "file_name": PurePath(child.file).name,
+                "line_text": str(line) if line == end_line else f"{line}-{end_line}",
+                "kind": "trace_line",
+                "source_text": str(statement.get("source_text") or child.metadata.get("source_text", "")),
+                "markers": list(statement.get("markers", [])),
+            }
+        )
     return {
         **_node_payload(node),
         "kind": "function_container",
-        "steps": [
-            {
-                "line": child.line,
-                "depth": structure.get(child.line, {}).get("depth", 0),
-                "function": child.function,
-                "file_name": PurePath(child.file).name,
-                "line_text": str(child.line),
-                "kind": "trace_line",
-                "source_text": child.metadata.get("source_text", ""),
-                "markers": structure.get(child.line, {}).get("markers", _source_markers(child.metadata.get("source_text", ""))),
-            }
-            for child in ordered_children
-        ],
+        "steps": steps,
     }
 
 
 def _python_function_structure(path: str, function_name: str) -> dict[int, dict[str, Any]]:
+    return {int(statement["line"]): statement for statement in _python_function_statements(path, function_name)}
+
+
+def _python_function_statements(path: str, function_name: str) -> list[dict[str, Any]]:
     try:
         source = Path(path).read_text(encoding="utf-8")
         tree = ast.parse(source)
     except (OSError, UnicodeDecodeError, SyntaxError):
-        return {}
+        return []
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
-            structure: dict[int, dict[str, Any]] = {}
+            statements: list[dict[str, Any]] = []
             for statement in node.body:
-                _collect_statement_structure(statement, 0, structure)
-            return structure
-    return {}
+                _collect_statement_structure(statement, 0, statements, source)
+            return sorted(statements, key=lambda item: (int(item["line"]), int(item["end_line"])))
+    return []
 
 
-def _collect_statement_structure(statement: ast.stmt, depth: int, structure: dict[int, dict[str, Any]]) -> None:
+def _collect_statement_structure(statement: ast.stmt, depth: int, statements: list[dict[str, Any]], source_text: str) -> None:
     markers = _ast_markers(statement)
-    structure[getattr(statement, "lineno", 0)] = {"depth": depth, "markers": markers}
+    line = getattr(statement, "lineno", 0)
+    end_line = _statement_visible_end_line(statement)
+    if line:
+        statements.append(
+            {
+                "line": line,
+                "end_line": end_line,
+                "depth": depth,
+                "markers": markers,
+                "source_text": _statement_source_text(source_text, statement, line, end_line),
+            }
+        )
     child_depth = depth + 1 if isinstance(statement, (ast.For, ast.AsyncFor, ast.While, ast.If, ast.With, ast.AsyncWith, ast.Try)) else depth
     for child in _statement_children(statement):
-        _collect_statement_structure(child, child_depth, structure)
+        _collect_statement_structure(child, child_depth, statements, source_text)
+
+
+def _statement_visible_end_line(statement: ast.stmt) -> int:
+    line = getattr(statement, "lineno", 0)
+    end_line = getattr(statement, "end_lineno", line)
+    child_lines = [getattr(child, "lineno", 0) for child in _statement_children(statement)]
+    child_lines = [child_line for child_line in child_lines if child_line]
+    if child_lines:
+        return max(line, min(child_lines) - 1)
+    return end_line
+
+
+def _statement_source_text(source_text: str, statement: ast.stmt, start_line: int, end_line: int) -> str:
+    if end_line == getattr(statement, "end_lineno", start_line):
+        segment = ast.get_source_segment(source_text, statement) or ""
+        if segment:
+            return _compact_source_text(segment)
+    return _read_source_lines(source_text, start_line, end_line)
+
+
+def _statement_lookup_by_line(statements: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    lookup: dict[int, dict[str, Any]] = {}
+    for statement in statements:
+        start = int(statement["line"])
+        end = int(statement["end_line"])
+        for line in range(start, end + 1):
+            lookup[line] = statement
+    return lookup
 
 
 def _statement_children(statement: ast.stmt) -> list[ast.stmt]:
@@ -618,7 +670,7 @@ def _render_static_node(node: dict[str, Any], subflow_ids: set[str]) -> str:
         classes += " skipped-call"
     if node.get("kind") == "trace_line":
         classes += " trace-line"
-    title = str(node.get("source_text") or node["function"]) if node.get("kind") == "trace_line" else node["function"]
+    title = str(node.get("display_text") or node.get("source_text") or node["function"]) if node.get("kind") == "trace_line" else node["function"]
     module_badge = f'<span class="module-badge">{_escape_text(str(node["module_label"]))}</span>' if node.get("module_label") else ""
     return (
         f'<button type="button" class="{classes}" data-node-id="{_escape_text(node["id"])}">'
@@ -653,7 +705,7 @@ def _render_static_subflow(subflow: dict[str, Any] | None) -> str:
         line_chunks.append(
             connector
             + f'<div class="flow-node{kind_class}" style="--depth: {depth}"><div class="flow-node-inner">'
-            f'<code>{_escape_text(str(line["line"]))}: {_escape_text(line["source_text"])}</code>{markers}'
+            f'<code>{_escape_text(str(line.get("line_text", line["line"])))}: {_escape_text(line["source_text"])}</code>{markers}'
             "</div></div>"
         )
     lines = "".join(line_chunks) or '<div class="empty">没有记录到内部行。</div>'
@@ -686,6 +738,7 @@ def _virtual_node_payload(node: FlowNode, line: int, end_line: int) -> dict[str,
         "parent_id": node.parent_id,
         "kind": "trace_segment",
         "source_text": source_text,
+        "display_text": _display_source_text(source_text),
         "module_label": node.metadata.get("vllm_module", ""),
     }
 
@@ -711,14 +764,18 @@ def _read_source_range(path: str, start_line: int, end_line: int) -> str:
         return ""
     if compact := _compact_python_statement(source_text, start_line, end_line):
         return compact
+    return _read_source_lines(source_text, start_line, end_line)
+
+
+def _read_source_lines(source_text: str, start_line: int, end_line: int) -> str:
     source_lines = source_text.splitlines()
     snippets = []
     for line_number in range(start_line, end_line + 1):
         if 1 <= line_number <= len(source_lines):
             snippet = source_lines[line_number - 1].strip()
-            if snippet:
+            if snippet and not snippet.startswith("#"):
                 snippets.append(snippet)
-    return " / ".join(snippets)
+    return _compact_source_text("\n".join(snippets))
 
 
 def _compact_python_statement(source_text: str, start_line: int, end_line: int) -> str:
@@ -741,6 +798,47 @@ def _compact_source_text(source_text: str) -> str:
     compact = compact.replace(",)", ")")
     compact = compact.replace(", )", ")")
     return compact
+
+
+def _display_source_text(source_text: str, limit: int = 96) -> str:
+    if len(source_text) <= limit:
+        return source_text
+    try:
+        tree = ast.parse(source_text)
+    except SyntaxError:
+        return _truncate_source_text(source_text, limit)
+    if len(tree.body) != 1:
+        return _truncate_source_text(source_text, limit)
+    statement = tree.body[0]
+    if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Call):
+        targets = " = ".join(ast.unparse(target) for target in statement.targets)
+        return f"{targets} = {_call_display_name(statement.value)}(...)"
+    if isinstance(statement, ast.AnnAssign) and isinstance(statement.value, ast.Call):
+        return f"{ast.unparse(statement.target)} = {_call_display_name(statement.value)}(...)"
+    if isinstance(statement, ast.Expr):
+        return _display_expression(statement.value, source_text)
+    return _truncate_source_text(source_text, limit)
+
+
+def _display_expression(expression: ast.expr, fallback: str) -> str:
+    if isinstance(expression, ast.Await) and isinstance(expression.value, ast.Call):
+        return f"await {_call_display_name(expression.value)}(...)"
+    if isinstance(expression, ast.Call):
+        return f"{_call_display_name(expression)}(...)"
+    return _truncate_source_text(fallback)
+
+
+def _call_display_name(call: ast.Call) -> str:
+    try:
+        return ast.unparse(call.func)
+    except Exception:
+        return "call"
+
+
+def _truncate_source_text(source_text: str, limit: int = 96) -> str:
+    if len(source_text) <= limit:
+        return source_text
+    return source_text[: limit - 1].rstrip() + "…"
 
 
 def _source_markers(source_text: str) -> list[str]:

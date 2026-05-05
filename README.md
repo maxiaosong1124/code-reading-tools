@@ -102,7 +102,7 @@ uv run coderead init --profile default --program app.py --scenario "阅读入口
 
 `graph` command 默认生成 trace-level 阅读图：按真实 debug 时间顺序把连续停靠点合并成片段，过滤常见 Python runtime frame 和 module wrapper，并避免把函数返回画成反向主边。单线程 trace 默认隐藏 thread label，边标签使用 `call` / `return` 这类阅读友好的术语。主线节点保持在外层，step into 的函数作为可点击子流程展示；step over 经过但没有进入的直接函数调用会显示为虚线 call placeholder。生成文件包括 `trace.html`、`graph.json`、`graph.mmd` 和 `trace.md`；其中 `trace.html` 是推荐主入口，左侧显示 Overview，点击子函数后右侧显示 Subflow。Subflow 按真实 debug 停靠顺序展示内部行，因此 loop 和 branch 会保留实际走过的路径；视觉缩进和 loop/branch/return 标记来自 Python AST。Mermaid 图默认不显示 hit count，减少视觉噪声；hit count 保留在 `graph.json` 和 `trace.md` 里。如果需要函数聚合图，可以使用 `--view function`；如果需要查看逐行 debug stop 细节，可以使用 `--view line`。
 
-Overview 会过滤注释和空行，并把 Python 多行 statement 压缩成单个节点，例如多行 `await engine.generate(...)` 会显示成一条紧凑调用，避免 vLLM 这类项目的长参数列表把主流程拆得过碎。
+Overview 会过滤注释和空行，并把 Python 多行 statement 压缩成单个节点，例如多行 `await engine.generate(...)` 会显示成一条紧凑调用，避免 vLLM 这类项目的长参数列表把主流程拆得过碎。特别长的调用在主流程里只显示短摘要，例如 `engine_args = AsyncEngineArgs(...)`；完整压缩后的 statement 仍保留在 `trace.html` payload 中。Subflow 也会按 Python AST 合并多行参数 statement，避免把 `SamplingParams(...)` 的每个参数渲染成独立流程节点。
 
 ## vLLM 阅读模式
 

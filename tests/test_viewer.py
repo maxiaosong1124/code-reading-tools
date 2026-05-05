@@ -297,6 +297,38 @@ def test_view_payload_overview_merges_multiline_call_expression(tmp_path):
     ]
 
 
+def test_view_payload_overview_uses_short_display_text_for_long_statements(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    engine_args = AsyncEngineArgs(\n"
+        "        model=model,\n"
+        "        enforce_eager=True,\n"
+        "        tensor_parallel_size=1,\n"
+        "        gpu_memory_utilization=0.70,\n"
+        "        max_model_len=2048,\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[frame("main", str(source), 2)]),
+            stopped("evt_02", "main", str(source), 3, stack=[frame("main", str(source), 3)]),
+            stopped("evt_03", "main", str(source), 4, stack=[frame("main", str(source), 4)]),
+            stopped("evt_04", "main", str(source), 5, stack=[frame("main", str(source), 5)]),
+            stopped("evt_05", "main", str(source), 6, stack=[frame("main", str(source), 6)]),
+            stopped("evt_06", "main", str(source), 7, stack=[frame("main", str(source), 7)]),
+            stopped("evt_07", "main", str(source), 8, stack=[frame("main", str(source), 8)]),
+        ]
+    )
+
+    payload = _view_payload(graph=graph, scenario="长节点摘要", session={})
+    step = payload["overview"][0]["steps"][0]
+
+    assert step["source_text"].startswith("engine_args = AsyncEngineArgs(")
+    assert step["display_text"] == "engine_args = AsyncEngineArgs(...)"
+
+
 def test_view_payload_subflow_uses_function_container_steps(tmp_path):
     source = tmp_path / "app.py"
     source.write_text(
@@ -327,6 +359,60 @@ def test_view_payload_subflow_uses_function_container_steps(tmp_path):
         (4, "trace_line", ["loop"]),
         (5, "trace_line", ["branch"]),
         (6, "trace_line", ["return"]),
+    ]
+
+
+def test_view_payload_subflow_merges_multiline_statement_steps(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    stream_response()\n"
+        "def stream_response():\n"
+        "    sampling_params = SamplingParams(\n"
+        "        max_tokens=100,\n"
+        "        temperature=0.8,\n"
+        "        top_p=0.95,\n"
+        "        seed=42,\n"
+        "    )\n"
+        "    for output in engine.generate(\n"
+        "        request_id=request_id, prompt=prompt, sampling_params=sampling_params\n"
+        "    ):\n"
+        "        print(output)\n",
+        encoding="utf-8",
+    )
+    main_2 = frame("main", str(source), 2)
+    stream_4 = frame("stream_response", str(source), 4)
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[main_2]),
+            stopped("evt_02", "stream_response", str(source), 4, stack=[stream_4, main_2], command="stepIn"),
+            stopped("evt_03", "stream_response", str(source), 5, stack=[frame("stream_response", str(source), 5), main_2]),
+            stopped("evt_04", "stream_response", str(source), 6, stack=[frame("stream_response", str(source), 6), main_2]),
+            stopped("evt_05", "stream_response", str(source), 7, stack=[frame("stream_response", str(source), 7), main_2]),
+            stopped("evt_06", "stream_response", str(source), 8, stack=[frame("stream_response", str(source), 8), main_2]),
+            stopped("evt_07", "stream_response", str(source), 4, stack=[frame("stream_response", str(source), 4), main_2]),
+            stopped("evt_08", "stream_response", str(source), 10, stack=[frame("stream_response", str(source), 10), main_2]),
+            stopped("evt_09", "stream_response", str(source), 11, stack=[frame("stream_response", str(source), 11), main_2]),
+            stopped("evt_10", "stream_response", str(source), 10, stack=[frame("stream_response", str(source), 10), main_2]),
+            stopped("evt_11", "stream_response", str(source), 13, stack=[frame("stream_response", str(source), 13), main_2]),
+        ]
+    )
+
+    payload = _view_payload(graph=graph, scenario="子流程合并多行 statement", session={})
+    steps = payload["subflows"][0]["steps"]
+
+    assert [(step["line_text"], step["source_text"], step["markers"]) for step in steps] == [
+        (
+            "4-9",
+            "sampling_params = SamplingParams(max_tokens=100, temperature=0.8, top_p=0.95, seed=42)",
+            [],
+        ),
+        (
+            "10-12",
+            "for output in engine.generate(request_id=request_id, prompt=prompt, sampling_params=sampling_params):",
+            ["loop"],
+        ),
+        ("13", "print(output)", []),
     ]
 
 
