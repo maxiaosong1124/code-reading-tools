@@ -152,7 +152,7 @@ Run: `rtk git status --short`
 
 Expected: only intended files are modified or added。
 
-- [ ] **Step 5: 提交 DAP trace capture**
+- [x] **Step 5: 提交 DAP trace capture**
 
 Run:
 
