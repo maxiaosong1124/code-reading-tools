@@ -129,7 +129,7 @@ Run: `rtk git status --short`
 
 Expected: only intended files are modified or added。
 
-- [ ] **Step 5: 提交 debugpy E2E validation**
+- [x] **Step 5: 提交 debugpy E2E validation**
 
 Run:
 
