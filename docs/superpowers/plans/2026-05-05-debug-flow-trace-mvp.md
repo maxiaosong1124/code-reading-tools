@@ -211,7 +211,7 @@ Run: `rtk git status --short`
 
 Expected: only intended files are modified or added。
 
-- [ ] **Step 4: 提交 MVP**
+- [x] **Step 4: 提交 MVP**
 
 Run:
 
