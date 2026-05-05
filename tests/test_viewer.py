@@ -239,6 +239,64 @@ def test_render_trace_html_uses_function_container_for_overview(tmp_path):
     assert '<strong>summarize</strong>' in html
 
 
+def test_view_payload_overview_skips_comment_only_steps(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    # prepare request metadata\n"
+        "    # keep this comment out of the reading graph\n"
+        "    result = run_request()\n",
+        encoding="utf-8",
+    )
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[frame("main", str(source), 2)]),
+            stopped("evt_02", "main", str(source), 3, stack=[frame("main", str(source), 3)]),
+            stopped("evt_03", "main", str(source), 4, stack=[frame("main", str(source), 4)]),
+        ]
+    )
+
+    payload = _view_payload(graph=graph, scenario="过滤注释", session={})
+    steps = payload["overview"][0]["steps"]
+
+    assert [(step["line_text"], step.get("source_text")) for step in steps] == [
+        ("4", "result = run_request()"),
+        ("4", None),
+    ]
+
+
+def test_view_payload_overview_merges_multiline_call_expression(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text(
+        "def main():\n"
+        "    stream = await engine.generate(\n"
+        "        prompt,\n"
+        "        sampling_params=sampling_params,\n"
+        "        request_id=request_id,\n"
+        "    )\n"
+        "    print(stream)\n",
+        encoding="utf-8",
+    )
+    graph = build_trace_flow_graph(
+        [
+            stopped("evt_01", "main", str(source), 2, stack=[frame("main", str(source), 2)]),
+            stopped("evt_02", "main", str(source), 3, stack=[frame("main", str(source), 3)]),
+            stopped("evt_03", "main", str(source), 4, stack=[frame("main", str(source), 4)]),
+            stopped("evt_04", "main", str(source), 5, stack=[frame("main", str(source), 5)]),
+            stopped("evt_05", "main", str(source), 6, stack=[frame("main", str(source), 6)]),
+            stopped("evt_06", "main", str(source), 7, stack=[frame("main", str(source), 7)]),
+        ]
+    )
+
+    payload = _view_payload(graph=graph, scenario="合并多行调用", session={})
+    steps = payload["overview"][0]["steps"]
+
+    assert [(step["line_text"], step.get("source_text")) for step in steps] == [
+        ("2-6", "stream = await engine.generate(prompt, sampling_params=sampling_params, request_id=request_id)"),
+        ("7", "print(stream)"),
+    ]
+
+
 def test_view_payload_subflow_uses_function_container_steps(tmp_path):
     source = tmp_path / "app.py"
     source.write_text(

@@ -20,6 +20,7 @@
 - [x] 在 `trace.html` 中显示 profile metadata 和 vLLM module badge。
 - [x] 更新 README 使用说明。
 - [x] 运行 targeted tests、全量 pytest 和 compileall。
+- [x] 优化 Overview 可读性：过滤注释/空行，并把 Python 多行 statement 压缩为单个主流程节点。
 
 ## 验证命令
 

@@ -370,9 +370,10 @@ def _split_root_segment_payload(
     handled_nodes: set[str],
     rendered_call_sites: set[tuple[str, int]],
 ) -> list[dict[str, Any]]:
+    visible_ranges = _visible_statement_ranges(node.file, node.function, node.line, node.end_line or node.line)
     breaks = _call_breaks_for_segment(graph, node)
     if not breaks:
-        return [_node_payload(node)]
+        return [_virtual_node_payload(node, start, end) for start, end in visible_ranges] or [_node_payload(node)]
 
     chunks: list[dict[str, Any]] = []
     cursor = node.line
@@ -381,18 +382,20 @@ def _split_root_segment_payload(
         if line < cursor or line > end_line:
             continue
         if cursor <= line - 1:
-            _append_visible_line_range(chunks, node, cursor, line - 1, rendered_call_sites)
+            _append_visible_line_range(chunks, node, cursor, line - 1, rendered_call_sites, visible_ranges)
         call_site = (node.file, line)
         if call_site not in rendered_call_sites:
-            chunks.append(_virtual_node_payload(node, line, line))
+            start, end = _statement_range_for_line(visible_ranges, line)
+            chunks.append(_virtual_node_payload(node, start, end))
             rendered_call_sites.add(call_site)
         if "call_placeholder" in call_node.kinds:
             chunks.append(_node_payload(call_node))
             handled_nodes.add(call_node.id)
             rendered_call_sites.add(call_site)
-        cursor = line + 1
+        _, call_end = _statement_range_for_line(visible_ranges, line)
+        cursor = call_end + 1
     if cursor <= end_line:
-        _append_visible_line_range(chunks, node, cursor, end_line, rendered_call_sites)
+        _append_visible_line_range(chunks, node, cursor, end_line, rendered_call_sites, visible_ranges)
     return chunks
 
 
@@ -402,18 +405,73 @@ def _append_visible_line_range(
     start_line: int,
     end_line: int,
     rendered_call_sites: set[tuple[str, int]],
+    visible_ranges: list[tuple[int, int]] | None = None,
 ) -> None:
-    current_start: int | None = None
-    for line in range(start_line, end_line + 1):
-        if (node.file, line) in rendered_call_sites:
-            if current_start is not None:
-                chunks.append(_virtual_node_payload(node, current_start, line - 1))
-                current_start = None
+    ranges = visible_ranges or [(start_line, end_line)]
+    for range_start, range_end in ranges:
+        clipped_start = max(start_line, range_start)
+        clipped_end = min(end_line, range_end)
+        if clipped_start > clipped_end:
             continue
-        if current_start is None:
-            current_start = line
-    if current_start is not None:
-        chunks.append(_virtual_node_payload(node, current_start, end_line))
+        if any((node.file, line) in rendered_call_sites for line in range(clipped_start, clipped_end + 1)):
+            continue
+        chunks.append(_virtual_node_payload(node, clipped_start, clipped_end))
+
+
+def _visible_statement_ranges(path: str, function_name: str, start_line: int, end_line: int) -> list[tuple[int, int]]:
+    statement_ranges = _python_statement_ranges(path, function_name)
+    if not statement_ranges:
+        return _fallback_visible_ranges(path, start_line, end_line)
+    ranges = []
+    seen = set()
+    for statement_start, statement_end in statement_ranges:
+        if statement_end < start_line or statement_start > end_line:
+            continue
+        clipped = (max(start_line, statement_start), min(end_line, statement_end))
+        if clipped not in seen:
+            ranges.append(clipped)
+            seen.add(clipped)
+    return ranges
+
+
+def _python_statement_ranges(path: str, function_name: str) -> list[tuple[int, int]]:
+    try:
+        source = Path(path).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return []
+    ranges: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
+            for statement in ast.walk(node):
+                if isinstance(statement, ast.stmt) and not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    lineno = getattr(statement, "lineno", 0)
+                    end_lineno = getattr(statement, "end_lineno", lineno)
+                    if lineno:
+                        ranges.append((lineno, end_lineno))
+            break
+    return sorted(set(ranges))
+
+
+def _fallback_visible_ranges(path: str, start_line: int, end_line: int) -> list[tuple[int, int]]:
+    try:
+        source_lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return [(start_line, end_line)]
+    ranges = []
+    for line_number in range(start_line, end_line + 1):
+        if 1 <= line_number <= len(source_lines):
+            stripped = source_lines[line_number - 1].strip()
+            if stripped and not stripped.startswith("#"):
+                ranges.append((line_number, line_number))
+    return ranges
+
+
+def _statement_range_for_line(ranges: list[tuple[int, int]], line: int) -> tuple[int, int]:
+    for start, end in ranges:
+        if start <= line <= end:
+            return start, end
+    return line, line
 
 
 def _call_breaks_for_segment(graph: FlowGraph, node: FlowNode) -> list[tuple[int, FlowNode]]:
@@ -648,9 +706,12 @@ def _line_text(node: FlowNode) -> str:
 
 def _read_source_range(path: str, start_line: int, end_line: int) -> str:
     try:
-        source_lines = Path(path).read_text(encoding="utf-8").splitlines()
+        source_text = Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
+    if compact := _compact_python_statement(source_text, start_line, end_line):
+        return compact
+    source_lines = source_text.splitlines()
     snippets = []
     for line_number in range(start_line, end_line + 1):
         if 1 <= line_number <= len(source_lines):
@@ -658,6 +719,28 @@ def _read_source_range(path: str, start_line: int, end_line: int) -> str:
             if snippet:
                 snippets.append(snippet)
     return " / ".join(snippets)
+
+
+def _compact_python_statement(source_text: str, start_line: int, end_line: int) -> str:
+    try:
+        tree = ast.parse(source_text)
+    except SyntaxError:
+        return ""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.stmt):
+            continue
+        if getattr(node, "lineno", None) == start_line and getattr(node, "end_lineno", start_line) == end_line:
+            segment = ast.get_source_segment(source_text, node) or ""
+            return _compact_source_text(segment)
+    return ""
+
+
+def _compact_source_text(source_text: str) -> str:
+    compact = " ".join(line.strip() for line in source_text.splitlines() if line.strip() and not line.strip().startswith("#"))
+    compact = compact.replace("( ", "(").replace(" )", ")")
+    compact = compact.replace(",)", ")")
+    compact = compact.replace(", )", ")")
+    return compact
 
 
 def _source_markers(source_text: str) -> list[str]:
