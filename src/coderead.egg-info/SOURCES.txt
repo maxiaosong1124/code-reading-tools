@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/coderead/__init__.py
+src/coderead.egg-info/PKG-INFO
+src/coderead.egg-info/SOURCES.txt
+src/coderead.egg-info/dependency_links.txt
+src/coderead.egg-info/entry_points.txt
+src/coderead.egg-info/top_level.txt

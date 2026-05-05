@@ -1,0 +1,2 @@
+[console_scripts]
+coderead = coderead.cli:main
